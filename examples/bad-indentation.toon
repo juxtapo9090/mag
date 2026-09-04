@@ -1,0 +1,5 @@
+job bad:
+  command: |
+    cat <<EOF
+hello
+EOF

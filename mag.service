@@ -1,0 +1,21 @@
+[Unit]
+Description=mag — resident warm-pool shell runner
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mag --serve --config /etc/mag/mag.yaml
+Restart=on-failure
+RestartSec=2
+# The whole point is one warm process tree; don't let systemd slice it.
+TasksMax=512
+
+# Hardening kept light: this is a shell runner by design, its job is to
+# execute commands for trusted local seats. Lock down what doesn't
+# interfere with that single purpose.
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+
+[Install]
+WantedBy=multi-user.target

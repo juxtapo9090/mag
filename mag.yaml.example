@@ -1,0 +1,35 @@
+# /etc/mag/mag.yaml — resident daemon config (local box, trusted seats)
+node:
+  name: mag-house
+  id: mag-01
+  region: local
+  role: appliance
+
+serve:
+  bind: 127.0.0.1
+  port: 7734
+  workers: 10
+  auth_token: ""          # open on loopback — trusted local seats only
+
+execution:
+  default_timeout_ms: 60000
+  max_capture_bytes: 65536
+  # Token-diet (rtk floor): rtk-style filter on matched commands + hard echo
+  # cap. never_worse guard = never bigger than raw. Off = old behaviour.
+  token_diet_enabled: true
+  token_diet_echo_max_bytes: 8192
+  # Local appliance: seats are trusted (brief: don't blanket-lock the local
+  # box). Prefix allowlist stays empty = open. A future VPS node sets these.
+  allowed_command_prefixes: []
+  allowed_argv: []
+
+session:
+  idle_timeout_ms: 300000     # 5 min — reaper target, tune live
+  reap_interval_ms: 30000
+  max_named: 12
+
+audit:
+  enabled: false
+  path: /var/lib/mag/audit.jsonl
+  cmd_bytes: 512
+  rotate_bytes: 10485760

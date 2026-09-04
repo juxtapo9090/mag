@@ -1,0 +1,208 @@
+# mag token-diet — house filters (rtk TOML schema v1, ported subset)
+#
+# One job: match the command, run the 8-stage pipeline, and let never_worse
+# return raw whenever "compressed" would be bigger. Conservative first cut —
+# commands house seats actually run through mag, tuned from rtk-0.44.0's
+# built-ins. Compile errors are logged and skipped at daemon boot, never fatal.
+
+schema_version = 1
+
+# --- git ------------------------------------------------------------------
+
+[filters.git-status]
+description = "git status — drop hint boilerplate, short-circuit clean trees"
+match_command = '^git\s+status(\s|$)'
+strip_ansi = true
+strip_lines_matching = [
+  '^\s*\(use "git ',
+  '^\s*\(create/copy files',
+  '\(use "git add',
+  '\(use "git restore',
+  '^\s*$',
+]
+[[filters.git-status.match_output]]
+pattern = 'nothing to commit, working tree clean'
+message = "ok — working tree clean"
+
+[filters.git-diff-stat]
+description = "git diff --stat / --shortstat — already compact, just strip ANSI"
+match_command = '^git\s+diff\s+.*(--stat|--shortstat|--numstat)'
+strip_ansi = true
+
+[filters.git-diff]
+description = "git diff — strip ANSI, cap very long diffs (recoverable via byte cap)"
+match_command = '^git\s+diff(\s|$)'
+strip_ansi = true
+max_lines = 400
+
+[filters.git-log]
+description = "git log — cap history dumps"
+match_command = '^git\s+(log|reflog|shortlog)(\s|$)'
+strip_ansi = true
+max_lines = 60
+
+[filters.git-show]
+description = "git show — strip ANSI, cap"
+match_command = '^git\s+show(\s|$)'
+strip_ansi = true
+max_lines = 300
+
+# --- cargo / rust ----------------------------------------------------------
+
+[filters.cargo-build]
+description = "cargo build/check/clippy — keep errors+warnings, ok short-circuit"
+match_command = '^cargo\s+(build|check|clippy|rustc|doc)(\s|$)'
+strip_ansi = true
+keep_lines_matching = [
+  '^(error|warning)(\[[^\]]*\])?:',
+  '^error\[',
+  '^\s+-->',
+  '^\s+\|',
+  '^\s+=',
+  '^\s*\d+ \|',
+  '^warning: unused',
+  '^warning: `.+` is never',
+  '^warning: \d+ warnings? emitted',
+  'cannot find',
+  'mismatched types',
+  'aborting due to',
+  'could not compile',
+  'Finished',
+  'Compiling \S+ v',
+]
+max_lines = 60
+[[filters.cargo-build.match_output]]
+pattern = 'Finished `[^`]+` profile[^\n]*'
+message = "ok — build clean"
+unless = '(^|\n)(error|warning)(\[[^\]]*\])?:'
+
+[filters.cargo-test]
+description = "cargo test — keep failures + summary, drop per-test ok lines"
+match_command = '^cargo\s+(test|nextest)(\s|$)'
+strip_ansi = true
+strip_lines_matching = [
+  '^test \S+ \.\.\. ok$',
+  '^\s+Running (unittests|tests)',
+  '^\s+Compiling \S+ v',
+  '^\s+Finished',
+  '^\s*$',
+]
+max_lines = 80
+[[filters.cargo-test.match_output]]
+pattern = 'test result: ok\. \d+ passed; 0 failed'
+message = "ok — all tests passed"
+unless = '(^|\n)(error|warning)(\[[^\]]*\])?:'
+
+# --- search / find ----------------------------------------------------------
+
+[filters.grep-like]
+description = "grep/rg — cap match floods"
+match_command = '^(grep|rg|ag|ack)\s'
+strip_ansi = true
+truncate_lines_at = 300
+max_lines = 40
+
+[filters.find]
+description = "find — cap file-list floods"
+match_command = '^find\s'
+strip_ansi = true
+max_lines = 40
+
+[filters.ls]
+description = "ls -l — drop permission noise, keep names+sizes"
+match_command = '^ls(?:\s+(?:-[^l\s]+|[^-\s][^\s]*))*\s*$'
+strip_ansi = true
+strip_lines_matching = ['^total \d+']
+max_lines = 60
+[[filters.ls.replace]]
+pattern = '^[dlbcps-][rwxstST-]{9}[.+@]?\s+\d+\s+\S+\s+\S+\s+'
+replacement = ""
+[[filters.ls.replace]]
+pattern = '\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s+'
+replacement = " "
+[[filters.ls.replace]]
+pattern = '\s+\w{3}\s+\d+\s+[\d:]+\s+'
+replacement = " "
+
+# --- system ----------------------------------------------------------------
+
+[filters.docker-ps]
+description = "docker ps — slim columns"
+match_command = '^docker\s+ps(\s|$)'
+strip_ansi = true
+truncate_lines_at = 200
+max_lines = 30
+
+[filters.docker-logs]
+description = "docker logs — tail, cap"
+match_command = '^docker\s+(logs|compose\s+logs)(\s|$)'
+strip_ansi = true
+truncate_lines_at = 400
+max_lines = 100
+
+[filters.systemctl-status]
+description = "systemctl status — drop cgroup tree noise, keep state lines"
+match_command = '^(sudo\s+)?systemctl\s+status(\s|$)'
+strip_ansi = true
+keep_lines_matching = [
+  '^\s*[●○*]\s',
+  'Loaded:',
+  'Active:',
+  'Main PID:',
+  'Status:',
+  'Memory:',
+  'CPU:',
+  'Tasks:',
+  '^\w+ \d+ ',
+  '^\s+CGroup:',
+]
+max_lines = 40
+
+[filters.journalctl]
+description = "journalctl — cap log dumps"
+match_command = '^(sudo\s+)?journalctl(\s|$)'
+strip_ansi = true
+truncate_lines_at = 400
+max_lines = 80
+
+[filters.dmesg]
+description = "dmesg — cap ring-buffer dumps"
+match_command = '^(sudo\s+)?dmesg(\s|$)'
+strip_ansi = true
+truncate_lines_at = 400
+max_lines = 80
+
+[filters.df]
+description = "df — keep table, strip ANSI"
+match_command = '^df\s'
+strip_ansi = true
+max_lines = 40
+
+[filters.ps]
+description = "ps — cap process listings"
+match_command = '^ps\s'
+strip_ansi = true
+truncate_lines_at = 300
+max_lines = 50
+
+# --- package managers -------------------------------------------------------
+
+[filters.pip-list]
+description = "pip list — cap inventories"
+match_command = '^(pip|pip3|uv)\s+(list|freeze)(\s|$)'
+strip_ansi = true
+max_lines = 60
+
+[filters.pacman-list]
+description = "pacman -Q / -Ss — cap package floods"
+match_command = '^(pacman|yay|paru)\s+(-[QS]s?\w*\s|$)'
+strip_ansi = true
+truncate_lines_at = 200
+max_lines = 60
+
+[filters.npm-list]
+description = "npm/pnpm list — cap dep trees"
+match_command = '^(npm|pnpm|yarn|bun)\s+(list|ls)(\s|$)'
+strip_ansi = true
+truncate_lines_at = 200
+max_lines = 80

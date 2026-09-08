@@ -177,14 +177,40 @@ See [`mag.service`](mag.service) for the unit template and [`mag.yaml.example`](
 
 ## Claude Code integration
 
-mag ships with skills for [Claude Code](https://docs.anthropic.com/en/docs/claude-code):
+mag ships with skills and tools for [Claude Code](https://docs.anthropic.com/en/docs/claude-code):
 
 | Skill | What it does |
 |-------|-------------|
 | [`skills/mag`](skills/mag/SKILL.md) | Full reference — two lanes, diet, sessions, terminals, gotchas |
-| [`skills/mag-p`](skills/mag-p/SKILL.md) | Persistent terminal check — "I'm already SSH'd in, look at my pane first" |
+| [`skills/mag-p`](skills/mag-p/SKILL.md) | Persistent terminal check + stdout pipe — "I'm already SSH'd in, look at my pane first" |
 
-Copy them to `~/.claude/skills/` and they load on demand.
+### mag-term-exec
+
+Companion script that closes the terminal lane's stdout gap: fire a command on a live `mag term` tmux session, wait for it to finish, and pipe the output back to the agent.
+
+```bash
+mag-term-exec 'cargo build --release'              # runs on mag-house
+mag-term-exec 'make test' --seat celeste            # runs on mag-celeste
+mag-term-exec 'npm run build' --timeout 300         # 5-minute timeout
+```
+
+The agent sees the result; the human watches it live in their tmux pane. No timeout limit from the terminal side — the default Bash tool's 2-minute kill doesn't apply.
+
+**How it works:** wraps the command in echo start/end markers, sends via `mag term send`, polls `mag term snapshot` until the end marker appears, extracts output with awk. Shell-agnostic (fish, bash, zsh).
+
+Install: `cp mag-term-exec /usr/local/bin/ && chmod +x /usr/local/bin/mag-term-exec`
+
+### Hook: mag terminal awareness
+
+Add to your Claude Code `UserPromptSubmit` hook to inject live terminal session status into every prompt — the agent knows which `mag-<seat>` sessions are up before responding:
+
+```
+🖥️ mag terminals: celeste, house, monica
+```
+
+Zero discovery steps. See [`skills/mag-p/SKILL.md`](skills/mag-p/SKILL.md) for the snippet.
+
+Copy skills to `~/.claude/skills/` and they load on demand.
 
 ## Project structure
 

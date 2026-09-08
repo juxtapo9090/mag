@@ -19,21 +19,45 @@ box.** Look at his own pane first — it's cheap and it's ground truth.
 mcp__mag__mag terminal: {"action": "snapshot", "lines": 60, "session": "mag-<seat>"}
 ```
 
-`<seat>` = your own seat name (`mag-monica` for Monica). This is the tmux session abang's
-been typing into directly. The snapshot shows his prompt, hostname, cwd, and last commands —
-read those before assuming anything about where "the VPS" is.
+`<seat>` = the seat name abang specifies (e.g. `mag-celeste`, `mag-monica`). This is the
+tmux session abang's been typing into directly. The snapshot shows his prompt, hostname, cwd,
+and last commands — read those before assuming anything about where "the VPS" is.
+
+## Awareness (2026-09-08)
+
+The UserPromptSubmit hook now injects **`🖥️ mag terminals: ...`** into every prompt — you
+already know which sessions are alive before this skill even fires. No discovery step needed.
 
 ## Procedure
 
-1. Snapshot `mag-<seat>` (60 lines is usually enough to see the current hostname + last
-   command). If abang references a specific tool/session name, use that instead.
-2. Read the actual hostname/prompt (`root@<hostname>:~#`) — that tells you which box, not
-   whichever IP you assumed from memory or an old doc.
-3. Act *in that same pane* via `terminal: {"action": "send", ...}` + `{"action": "snapshot"}`
-   to read the result — don't open a parallel `ssh` session unless abang's pane genuinely
-   isn't where the work needs to happen.
-4. If nothing useful shows (`status=missing`, empty pane), say so plainly and ask which box
+1. **You already know which sessions are up** from the hook injection. If the target session
+   is listed, go straight to step 2.
+2. Snapshot `mag-<seat>` (60 lines) — read the hostname/prompt/cwd.
+3. **To run a command and get stdout back**, use `mag-term-exec`:
+   ```bash
+   mag-term-exec 'command here' --seat <seat> [--timeout SECS]
+   ```
+   This sends the command to the live tmux pane, waits for completion, and pipes stdout back.
+   No timeout limit from the terminal side — polls until done or `--timeout` (default 120s).
+   Works with fish, bash, zsh.
+4. For fire-and-forget (don't need stdout): use `terminal: {"action": "send", ...}` directly.
+5. If nothing useful shows (`status=missing`, empty pane), say so plainly and ask which box
    / session he means — don't fall back to opening your own connection silently.
+
+## mag-term-exec (2026-09-08)
+
+Installed at `/usr/local/bin/mag-term-exec`. The stdout pipe that was missing from the mag
+terminal lane — fire a command on abang's live terminal, wait, get the result back.
+
+```bash
+mag-term-exec 'uname -a'                     # runs on mag-house
+mag-term-exec 'cargo build' --seat celeste    # runs on mag-celeste
+mag-term-exec 'make test' --timeout 300       # 5-minute timeout
+```
+
+How it works: echo start-marker → command → echo end-marker, all on one line. Polls
+`mag term snapshot` until end marker appears, extracts output between markers via awk.
+Shell-agnostic (detects fish `$status` vs bash `$?` for exit codes).
 
 ## Why this matters
 

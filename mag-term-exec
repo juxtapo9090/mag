@@ -1,0 +1,83 @@
+#!/bin/bash
+# mag-term-exec: send a command to mag terminal, wait for it, return stdout
+# Usage: mag-term-exec.sh "command" [--seat NAME] [--timeout SECS]
+
+set -euo pipefail
+
+CMD=""
+SEAT_ARG=""
+SOCKET=""
+SESSION=""
+TIMEOUT=120
+POLL=0.5
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --seat)
+      SESSION="mag-$2"
+      SEAT_ARG="--session mag-$2"
+      shift 2 ;;
+    --timeout) TIMEOUT="$2"; shift 2 ;;
+    *) CMD="$1"; shift ;;
+  esac
+done
+
+if [[ -z "$CMD" || "$CMD" == "--help" || "$CMD" == "-h" ]]; then
+  echo "mag-term-exec — run a command on a mag terminal, pipe stdout back"
+  echo "Usage: mag-term-exec 'command' [--seat NAME] [--timeout SECS]"
+  echo "  --seat NAME    target mag-<NAME> tmux session (default: house)"
+  echo "  --timeout S    max wait in seconds (default: 120)"
+  exit 0
+fi
+
+# Find the tmux socket for this session
+find_socket() {
+  local sess="${1:-mag-house}"
+  for sock in /tmp/tmux-*/default; do
+    if tmux -S "$sock" has-session -t "$sess" 2>/dev/null; then
+      echo "$sock"
+      return
+    fi
+  done
+  echo ""
+}
+
+SOCKET=$(find_socket "${SESSION:-mag-house}")
+[[ -z "$SOCKET" ]] && { echo "Cannot find tmux socket for ${SESSION:-mag-house}" >&2; exit 1; }
+
+SESS="${SESSION:-mag-house}"
+
+# Clean the line first: Ctrl-C + Ctrl-U
+tmux -S "$SOCKET" send-keys -t "$SESS" C-c
+sleep 0.1
+tmux -S "$SOCKET" send-keys -t "$SESS" C-u
+sleep 0.1
+
+TAG="MX${RANDOM}R"
+SM="S${TAG}S"
+EM="E${TAG}E"
+
+# Send as single line: echo START; cmd; echo END
+mag term send "echo $SM; $CMD; echo $EM" --enter $SEAT_ARG
+
+# Poll until end marker
+ELAPSED=0
+while true; do
+  SNAP=$(mag term snapshot $SEAT_ARG --lines 500 2>/dev/null)
+  if echo "$SNAP" | rg -q "^${EM}$"; then
+    break
+  fi
+  sleep "$POLL"
+  ELAPSED=$(echo "$ELAPSED + $POLL" | bc)
+  if (( $(echo "$ELAPSED >= $TIMEOUT" | bc -l) )); then
+    echo "[mag-term-exec] TIMEOUT after ${TIMEOUT}s" >&2
+    exit 124
+  fi
+done
+
+# Extract between markers, strip prompt lines (fish ❯, bash $, zsh %)
+echo "$SNAP" | awk -v sm="^${SM}$" -v em="^${EM}$" '
+  found && $0 ~ em { exit }
+  found { print }
+  $0 ~ sm { found=1 }
+' | rg -v "^(❯|\\$|%) " | rg -v "^echo (S|E)MX[0-9]+R[SE]$" | rg -v "^$"
